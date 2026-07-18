@@ -17,6 +17,13 @@
 
 \copy public.phages (phage, tailed, tail_morphology, family, main_host, host_taxid, host_canonical_name, gram_stain, receptor_location, host_receptor, receptor_domain, domain_class, host_range, host_range_basis, host_range_confidence, host_range_note, reference, doi, comments, verified, has_genbank, genbank_link, genbank_accession, genbank_tier, genbank_gene, has_uniprot, uniprot_link, uniprot_accession, uniprot_tier, uniprot_protein, source, source_citation, date_retrieved, needs_review, review_reasons, domain_confidence, genbank_confidence, uniprot_confidence) from 'phage_library_SEED.csv' with (format csv, header true, null '');
 
+-- Normalize whitespace-only comments to NULL. The seed CSV carries a single
+-- space (' ') in the comments cell of 525 rows — a spreadsheet-export artifact,
+-- not lab content — which \copy loads verbatim. Collapse those to real NULL so
+-- the column matches the schema's "null when absent" intent. (comments is not
+-- surfaced in the current UI; this is purely data hygiene.)
+update public.phages set comments = null where trim(comments) = '';
+
 -- Verification (expected: 526 / 63 / 512 / 185 per BUILD_SPEC.md §5 and §9)
 select count(*) as total_rows from public.phages;
 select count(*) as needs_review_rows from public.phages where needs_review;
