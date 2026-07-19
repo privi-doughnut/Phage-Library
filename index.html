@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Phage Receptor Library</title>
+<script>
+// Applied before the stylesheet paints anything, so a returning user's saved
+// theme shows immediately instead of flashing light-then-dark on load.
+(function(){
+  var saved=localStorage.getItem('phageLibTheme');
+  if(saved==='dark'||saved==='light') document.documentElement.setAttribute('data-theme',saved);
+})();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600;700&display=swap" rel="stylesheet">
@@ -1260,11 +1268,19 @@ document.getElementById('exportBtn').addEventListener('click',()=>{
   const head=['phage','family','tailed','tail_morphology','host','host_taxid','host_ncbi_name','gram','receptor','receptor_location','domain','domain_class','host_range','host_range_basis','host_range_confidence','has_genbank','genbank_gene','genbank_accession','genbank_link','has_uniprot','uniprot_accession','uniprot_link','uniprot_protein','reference','doi','flagged','review_reasons'];
   const csv=[head.join(',')].concat(rows.map(r=>cols.map(c=>{let v=r[c]==null?'':String(r[c]);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}).join(','))).join('\n');
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='phage_receptor_view.csv';a.click();});
+function syncThemeUI(){
+  const dark=document.documentElement.getAttribute('data-theme')==='dark';
+  document.getElementById('themeIcon').textContent=dark?'☀':'◐';
+  document.getElementById('themeLabel').textContent=dark?'Clinical':'Lab';
+}
+syncThemeUI(); // reflect whatever the blocking head script already restored from localStorage
 document.getElementById('themeBtn').addEventListener('click',()=>{
   const root=document.documentElement, dark=root.getAttribute('data-theme')==='dark';
-  root.setAttribute('data-theme',dark?'light':'dark');
-  document.getElementById('themeIcon').textContent=dark?'◐':'☀';
-  document.getElementById('themeLabel').textContent=dark?'Lab':'Clinical';});
+  const next=dark?'light':'dark';
+  root.setAttribute('data-theme',next);
+  localStorage.setItem('phageLibTheme',next);
+  syncThemeUI();
+});
 document.getElementById('ovToggle').addEventListener('click',()=>{
   const g=document.getElementById('overview'), hidden=g.style.display==='none';
   g.style.display=hidden?'grid':'none'; document.getElementById('ovToggle').textContent=hidden?'Hide':'Show';});

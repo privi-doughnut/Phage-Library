@@ -220,6 +220,7 @@ alter table public.phages
 drop policy if exists "auth delete" on public.phages;
 drop policy if exists "auth insert" on public.phages;
 drop policy if exists "auth update" on public.phages;
+drop policy if exists "admin delete after cooldown" on public.phages;
 
 create policy "auth insert" on public.phages
   for insert to authenticated with check (not public.is_banned());

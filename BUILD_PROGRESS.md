@@ -348,7 +348,8 @@ Pages domain added once you deploy).
 
 ## Full checklist of what's left for a human
 1. ✅ ~~Deploy to Cloudflare~~ — done: live at
-   `https://piadd.its-the-prithivi-show.workers.dev/` (deployed via Workers +
+   `https://prl.its-the-prithivi-show.workers.dev/` (renamed project from the
+   original `piadd`; deployed via Workers +
    static assets, `main` branch, auto-deploys on push).
 2. ✅ ~~Add the production URL to Supabase Redirect URLs~~ — done.
 3. **Run `supabase/phase6_admin_ban_notifications.sql`** in the Supabase SQL
