@@ -69,6 +69,21 @@ button{font-family:inherit; cursor:pointer}
 .editform textarea{resize:vertical}
 .editform input:focus, .editform select:focus, .editform textarea:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-wash)}
 
+.auth-tabs{display:flex; gap:6px; margin-bottom:10px}
+.auth-tab{flex:1; border:1px solid var(--line); background:var(--surface-2); color:var(--muted); border-radius:7px; padding:6px 8px; font-size:11.5px; font-weight:500}
+.auth-tab.active{background:var(--accent-wash); color:var(--accent-ink); border-color:transparent}
+.admin-row{display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:5px; font-size:12px}
+.admin-row .val{font-family:"IBM Plex Mono"; font-size:11.5px; word-break:break-all}
+.notif-wrap{position:relative}
+.notif-badge{background:var(--warn); color:#fff; border-radius:9px; font-size:10px; font-weight:700; padding:1px 5px; margin-left:1px; line-height:1.35}
+.notif-pop{width:340px; max-height:70vh; overflow-y:auto}
+.activity-item{padding:8px 0; border-bottom:1px solid var(--line-2); font-size:12.5px}
+.activity-item:last-child{border-bottom:none}
+.activity-item .who{color:var(--muted); font-size:11px; margin-top:2px}
+.activity-item .when{color:var(--faint); font-size:10.5px; margin-top:1px}
+.toast{position:fixed; bottom:22px; right:22px; background:var(--surface); border:1px solid var(--accent); color:var(--ink); padding:14px 18px; border-radius:10px; box-shadow:var(--shadow); z-index:60; max-width:320px; font-size:13px; line-height:1.4}
+.ban-banner{margin:0; padding:11px 22px; background:var(--warn-wash); color:var(--warn); font-size:12.5px; font-weight:500}
+
 .coverage{display:flex; gap:0; margin:16px auto 0; flex-wrap:wrap; border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; background:var(--surface)}
 .cov{flex:1; min-width:120px; padding:12px 16px; border-right:1px solid var(--line-2)}
 .cov:last-child{border-right:none}
@@ -222,6 +237,10 @@ footer{padding:24px; color:var(--faint); font-size:11.5px; border-top:1px solid 
     <div class="mast-actions">
       <button class="pill-btn primary" id="helpBtn">? How to use</button>
       <button class="pill-btn" id="themeBtn"><span id="themeIcon">◐</span><span id="themeLabel">Lab</span></button>
+      <div class="notif-wrap" id="notifWrap" style="display:none">
+        <button class="pill-btn" id="notifBtn">🔔<span id="notifBadge" class="notif-badge" style="display:none">0</span></button>
+        <div class="auth-pop notif-pop" id="notifPop" hidden></div>
+      </div>
       <div class="auth-wrap" id="authWrap">
         <button class="pill-btn" id="authBtn">Sign in</button>
         <div class="auth-pop" id="authPop" hidden></div>
@@ -264,6 +283,7 @@ footer{padding:24px; color:var(--faint); font-size:11.5px; border-top:1px solid 
     <select id="f-gram"><option value="">Any Gram stain</option><option>Gram negative</option><option>Gram positive</option><option>Acid fast</option></select>
     <select id="f-gb"><option value="">GenBank: any</option><option value="yes">Has GenBank link</option><option value="no">No GenBank</option></select>
     <select id="f-up"><option value="">UniProt: any</option><option value="yes">Has UniProt RBP</option><option value="no">No UniProt</option></select>
+    <select id="f-pendel" style="display:none"><option value="">Pending deletion: any</option><option value="yes">Flagged for deletion</option></select>
     <button class="btn-ghost" id="exportBtn">Export view (CSV)</button>
     <button class="btn-ghost" id="addPhageBtn" style="display:none">+ Add phage</button>
   </div>
@@ -391,6 +411,8 @@ function mapRow(r){
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     updatedBy: r.updated_by,
+    pendingDeletionAt: r.pending_deletion_at,
+    pendingDeletionBy: r.pending_deletion_by,
     gbHas: yn(r.has_genbank),
     gbLink: nz(r.genbank_link),
     gbAcc: nz(r.genbank_accession),
@@ -506,7 +528,7 @@ function toDbPatch(vals){
 }
 
 const state={seg:'verified', q:'', sort:'phage', dir:1, groupBy:'domain', lastGroup:'domain', expanded:new Set(),
-  domain:'', hostrange:'', tail:'', gram:'', gb:'', up:''};
+  domain:'', hostrange:'', tail:'', gram:'', gb:'', up:'', pendel:''};
 
 const fd=document.getElementById('f-domain');
 DOMAINS.forEach(d=>{const o=document.createElement('option');o.value=d;o.textContent=d;fd.appendChild(o);});
@@ -515,6 +537,18 @@ DOMAINS.forEach(d=>{const s=document.createElement('span');s.className='chip '+d
 
 function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function segSet(){return DATA.filter(d=> state.seg==='all'?true : state.seg==='flagged'?d.flagged : !d.flagged);}
+
+function timeLeft(fromIso){
+  const ms=72*3600*1000-(Date.now()-new Date(fromIso).getTime());
+  if(ms<=0) return 'now';
+  const h=Math.floor(ms/3600000), m=Math.floor((ms%3600000)/60000);
+  return h>0?`${h}h ${m}m`:`${m}m`;
+}
+function showToast(msg){
+  const t=document.createElement('div'); t.className='toast'; t.textContent=msg;
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(),7000);
+}
 
 function renderCoverage(){
   const n=DATA.length, ver=DATA.filter(d=>!d.flagged).length, flg=n-ver;
@@ -582,6 +616,7 @@ function filtered(){
   if(state.gram) rows=rows.filter(d=>d.gram===state.gram);
   if(state.gb) rows=rows.filter(d=>d.gbHas===state.gb);
   if(state.up) rows=rows.filter(d=>d.upHas===state.up);
+  if(state.pendel) rows=rows.filter(d=>!!d.pendingDeletionAt);
   if(state.q){const q=state.q.toLowerCase();
     rows=rows.filter(d=>[d.phage,d.host,d.receptor,d.gbAcc,d.upAcc,d.family,d.upProtein,d.gbGene].some(v=>(v||'').toLowerCase().includes(q)));}
   const s=state.sort;
@@ -594,7 +629,7 @@ function rowHTML(d,gkey,open){
   const hidden = (gkey!==undefined && !open) ? ' style="display:none"':'';
   const dg = gkey!==undefined ? ` data-group="${esc(gkey)}"`:'';
   return `<tr class="data-row${d.flagged?' flagged':''}"${dg}${hidden} tabindex="0" data-idx="${DATA.indexOf(d)}">
-    <td><div class="phage-name">${esc(d.phage)}</div>${d.flagged?'<div class="sub-cell" style="color:var(--warn)">needs revision</div>':''}</td>
+    <td><div class="phage-name">${esc(d.phage)}</div>${d.flagged?'<div class="sub-cell" style="color:var(--warn)">needs revision</div>':''}${d.pendingDeletionAt?'<div class="sub-cell" style="color:var(--warn)">flagged for deletion</div>':''}</td>
     <td class="hide-sm">${esc(d.family)}<div class="sub-cell">${d.tailed==='yes'?esc(d.tailMorph):'tailless'}</div></td>
     <td><span class="host-i">${esc(d.host)}</span>${d.taxid?`<div class="sub-cell mono">txid ${esc(d.taxid)}</div>`:''}</td>
     <td style="max-width:240px">${esc(d.receptor).slice(0,70)}${d.receptor.length>70?'…':''}</td>
@@ -666,10 +701,29 @@ function renderChips(){
   c.appendChild(clr);
 }
 
-let drawerEditing=false;
+let drawerEditing=false, currentDrawerId=null;
+const resolvedEmails={}; // uuid -> email (or null if looked up but no profile row) — admin-only lookups
+
+async function ensureEmailsResolved(ids){
+  const missing=[...new Set(ids.filter(Boolean))].filter(id=>!(id in resolvedEmails));
+  if(!missing.length) return false;
+  try{
+    const {data}=await supabaseClient.from('profiles').select('user_id,email').in('user_id',missing);
+    (data||[]).forEach(p=>resolvedEmails[p.user_id]=p.email);
+    missing.forEach(id=>{ if(!(id in resolvedEmails)) resolvedEmails[id]=null; });
+    return true;
+  }catch(e){ return false; }
+}
+function whoLabel(uuid){
+  if(!uuid) return '—';
+  if(currentUser && currentUser.id===uuid) return 'You';
+  if(isAdmin && resolvedEmails[uuid]) return resolvedEmails[uuid];
+  return 'lab member '+uuid.slice(0,8);
+}
 
 function openDrawer(d){
   drawerEditing=false;
+  currentDrawerId=d.id;
   renderDrawerContent(d);
   document.getElementById('drawer').classList.add('open');
   document.getElementById('scrim').classList.add('open');
@@ -678,6 +732,12 @@ function renderDrawerContent(d){
   const dr=document.getElementById('drawer');
   if(drawerEditing){dr.innerHTML=drawerEditHTML(d); bindDrawerEditEvents(d);}
   else{dr.innerHTML=drawerViewHTML(d); bindDrawerViewEvents(d);}
+}
+function refreshOpenDrawerIfAny(){
+  if(document.getElementById('drawer').classList.contains('open') && currentDrawerId){
+    const item=DATA.find(x=>x.id===currentDrawerId);
+    if(item){ drawerEditing=false; renderDrawerContent(item); }
+  }
 }
 
 function drawerViewHTML(d){
@@ -692,19 +752,25 @@ function drawerViewHTML(d){
   const reasons=d.flagged&&d.reviewReasons?`<div class="dr-sec"><h3>Why this needs revision</h3>${d.reviewReasons.split(' | ').map(r=>`<div class="reason-item">${esc(r)}</div>`).join('')}</div>`:'';
   const doiLink=d.doi?`<a href="https://doi.org/${esc(d.doi.replace(/[–—]/g,'-'))}" target="_blank" rel="noopener">${esc(d.doi)} ↗</a>`:'—';
   const canonNote = (d.hostCanon && d.hostCanon.toLowerCase()!==d.host.toLowerCase()) ? `<dt>NCBI name</dt><dd>${esc(d.hostCanon)}</dd>` : '';
-  const actions=currentUser?`<div class="dr-actions">
+  const canWrite=currentUser&&!isBanned;
+  const delEligible=d.pendingDeletionAt && (Date.now()-new Date(d.pendingDeletionAt).getTime())>=72*3600*1000;
+  const actions=canWrite?`<div class="dr-actions">
       <button class="btn-ghost" id="editBtn">Edit record</button>
       <button class="btn-ghost" id="toggleFlagBtn">${d.flagged?'Mark as verified':'Mark as needs revision'}</button>
-      <button class="btn-ghost danger" id="deleteBtn">Delete</button>
+      ${d.pendingDeletionAt
+        ?`<button class="btn-ghost" id="cancelDeleteBtn">Cancel deletion flag</button>${isAdmin&&delEligible?'<button class="btn-ghost danger" id="deleteBtn">Delete now</button>':''}`
+        :`<button class="btn-ghost danger" id="flagDeleteBtn">Flag for deletion</button>`}
     </div>`:'';
+  const delBanner=d.pendingDeletionAt?`<p class="dr-banner" style="background:var(--warn-wash);color:var(--warn)">🗑 Flagged for deletion by ${esc(whoLabel(d.pendingDeletionBy))} on ${esc(new Date(d.pendingDeletionAt).toLocaleString())} — ${delEligible?'an admin can delete it now':'eligible in '+timeLeft(d.pendingDeletionAt)}</p>`:'';
   const meta=d.updatedAt?`<div class="dr-sec"><h3>Editing</h3><dl class="kv">
       <dt>Last updated</dt><dd>${esc(new Date(d.updatedAt).toLocaleString())}</dd>
-      <dt>Updated by</dt><dd>${d.updatedBy?(currentUser&&currentUser.id===d.updatedBy?'You':'lab member '+d.updatedBy.slice(0,8)):'—'}</dd>
+      <dt>Updated by</dt><dd>${esc(whoLabel(d.updatedBy))}</dd>
     </dl></div>`:'';
   return `
     <div class="dr-head"><button class="close" aria-label="Close" onclick="closeDrawer()">✕</button>
       <h2>${esc(d.phage)}</h2><div class="h-host">${esc(d.host)}${d.taxid?` · txid ${esc(d.taxid)}`:''}</div></div>
     ${d.flagged?`<p class="dr-banner">⚑ Flagged for revision — not in the verified set</p>`:''}
+    ${delBanner}
     <div class="dr-body">${actions}${reasons}
       <div class="dr-sec"><h3>Classification</h3><dl class="kv">
         <dt>Receptor</dt><dd>${esc(d.receptor)}</dd>
@@ -720,10 +786,17 @@ function drawerViewHTML(d){
     </div>`;
 }
 function bindDrawerViewEvents(d){
-  if(!currentUser) return;
+  if(isAdmin){
+    ensureEmailsResolved([d.updatedBy,d.pendingDeletionBy]).then(changed=>{
+      if(changed && currentDrawerId===d.id && !drawerEditing) renderDrawerContent(d);
+    });
+  }
+  if(!currentUser||isBanned) return;
   document.getElementById('editBtn').onclick=()=>{drawerEditing=true; renderDrawerContent(d);};
   document.getElementById('toggleFlagBtn').onclick=()=>toggleFlag(d);
-  document.getElementById('deleteBtn').onclick=()=>deletePhage(d);
+  const flagBtn=document.getElementById('flagDeleteBtn'); if(flagBtn) flagBtn.onclick=()=>flagForDeletion(d);
+  const cancelBtn=document.getElementById('cancelDeleteBtn'); if(cancelBtn) cancelBtn.onclick=()=>cancelDeletionFlag(d);
+  const delBtn=document.getElementById('deleteBtn'); if(delBtn) delBtn.onclick=()=>deletePhage(d);
 }
 
 function drawerEditHTML(d){
@@ -770,15 +843,30 @@ async function toggleFlag(d){
     applyRowUpdate(data);
   }catch(e){ alert('Could not update this record: '+(e.message||e)); }
 }
+async function flagForDeletion(d){
+  if(!confirm(`Flag "${d.phage}" for deletion? An admin can permanently delete it after a 72-hour cooldown — anyone can cancel the flag before then.`)) return;
+  try{
+    const {data,error}=await supabaseClient.from('phages').update({pending_deletion_at:new Date().toISOString(),pending_deletion_by:currentUser.id}).eq('id',d.id).select().single();
+    if(error) throw error;
+    applyRowUpdate(data);
+  }catch(e){ alert('Could not flag this record: '+(e.message||e)); }
+}
+async function cancelDeletionFlag(d){
+  try{
+    const {data,error}=await supabaseClient.from('phages').update({pending_deletion_at:null,pending_deletion_by:null}).eq('id',d.id).select().single();
+    if(error) throw error;
+    applyRowUpdate(data);
+  }catch(e){ alert('Could not cancel the deletion flag: '+(e.message||e)); }
+}
 async function deletePhage(d){
-  if(!confirm(`Delete "${d.phage}" permanently? This cannot be undone.`)) return;
+  if(!confirm(`Permanently delete "${d.phage}"? This cannot be undone.`)) return;
   try{
     // .select() forces PostgREST to report affected rows — without it, a delete
     // silently blocked by RLS (0 rows affected) returns no error at all, and the
     // UI would wrongly believe the delete succeeded.
     const {data,error}=await supabaseClient.from('phages').delete().eq('id',d.id).select();
     if(error) throw error;
-    if(!data||data.length===0) throw new Error('Not permitted, or the record was already removed.');
+    if(!data||data.length===0) throw new Error('Not permitted yet — check the 72-hour cooldown has elapsed and you are an admin.');
     removeRow(d.id);
   }catch(e){ alert('Could not delete this record: '+(e.message||e)); }
 }
@@ -799,7 +887,7 @@ function removeRow(id){
   closeDrawer();
 }
 
-function closeDrawer(){document.getElementById('drawer').classList.remove('open');document.getElementById('scrim').classList.remove('open');}
+function closeDrawer(){document.getElementById('drawer').classList.remove('open');document.getElementById('scrim').classList.remove('open');currentDrawerId=null;}
 function closeHelp(){document.getElementById('helpModal').classList.remove('open');document.getElementById('scrim').classList.remove('open');}
 function closeAddModal(){document.getElementById('addModal').classList.remove('open');document.getElementById('scrim').classList.remove('open');}
 
@@ -837,10 +925,10 @@ function openAddModal(){
 }
 document.getElementById('addPhageBtn').addEventListener('click',openAddModal);
 
-// ── Auth (Phase 3): magic-link sign-in ───────────────────────────────────
+// ── Auth (Phase 3): magic-link + password sign-in ────────────────────────
 // Signed-out visitors keep full read access (BUILD_SPEC.md §4/§8 Phase 3) —
 // this only ever gates what a later phase lets you write, never what you can read.
-let currentUser=null, authMsg=null;
+let currentUser=null, authMsg=null, authTab='link', isAdmin=false, isBanned=false, wasAdminBefore=false;
 
 function renderAuth(){
   const btn=document.getElementById('authBtn');
@@ -852,25 +940,50 @@ function renderAuth(){
     btn.textContent='Sign in';
     btn.title='';
   }
-  document.getElementById('addPhageBtn').style.display=currentUser?'inline-flex':'none';
+  const canWrite=currentUser&&!isBanned;
+  document.getElementById('addPhageBtn').style.display=canWrite?'inline-flex':'none';
+  document.getElementById('f-pendel').style.display=isAdmin?'inline-block':'none';
+  document.getElementById('notifWrap').style.display=currentUser?'block':'none';
   renderAuthPop();
 }
 
 function renderAuthPop(){
   const pop=document.getElementById('authPop');
   if(currentUser){
+    if(isBanned){
+      pop.innerHTML=`<p class="ban-banner" style="margin:0 0 10px;border-radius:8px">Your write access has been restricted by a lab admin. You can still read/search/export everything — contact an admin if you think this is a mistake.</p>
+        <button class="pill-btn" id="signOutBtn" style="width:100%;justify-content:center">Sign out</button>`;
+      document.getElementById('signOutBtn').addEventListener('click',async()=>{await supabaseClient.auth.signOut();});
+      return;
+    }
     pop.innerHTML=`<div class="auth-signed"><div class="lab">Signed in</div><div class="val mono">${esc(currentUser.email)}</div></div>
+      <button class="pill-btn" id="setPasswordBtn" style="width:100%;justify-content:center;margin-top:10px">Set / change password</button>
+      <div id="setPasswordArea"></div>
+      ${isAdmin?`<div id="adminPanel" style="margin-top:14px;border-top:1px solid var(--line-2);padding-top:12px;font-size:12px;color:var(--muted)">Loading admin panel…</div>`:''}
       <button class="pill-btn" id="signOutBtn" style="width:100%;justify-content:center;margin-top:10px">Sign out</button>`;
     document.getElementById('signOutBtn').addEventListener('click',async()=>{await supabaseClient.auth.signOut();});
+    document.getElementById('setPasswordBtn').addEventListener('click',toggleSetPasswordForm);
+    if(isAdmin) loadAdminPanel();
   }else{
+    const tab=(id,label)=>`<button type="button" class="auth-tab${authTab===id?' active':''}" data-tab="${id}">${label}</button>`;
     pop.innerHTML=`<h4>Sign in</h4>
-      <p>Lab members can edit records. Enter your email for a one-time sign-in link — no password needed.</p>
-      <form id="authForm">
-        <input id="authEmail" type="email" placeholder="you@lab.edu" autocomplete="email" required>
-        <button class="pill-btn primary" type="submit" id="authSubmit" style="width:100%;justify-content:center">Send magic link</button>
-      </form>
+      <p>Lab members can edit records.</p>
+      <div class="auth-tabs">${tab('link','Email link')}${tab('password','Password')}</div>
+      ${authTab==='link'?`
+        <form id="authForm">
+          <input id="authEmail" type="email" placeholder="you@lab.edu" autocomplete="email" required>
+          <button class="pill-btn primary" type="submit" id="authSubmit" style="width:100%;justify-content:center">Send magic link</button>
+        </form>`:`
+        <form id="authPwForm">
+          <input id="authPwEmail" type="email" placeholder="you@lab.edu" autocomplete="email" required>
+          <input id="authPwPassword" type="password" placeholder="Password" autocomplete="current-password" required minlength="6">
+          <button class="pill-btn primary" type="submit" id="authPwSubmit" style="width:100%;justify-content:center">Sign in</button>
+        </form>
+        <p style="margin-top:8px;font-size:11px;color:var(--faint)">No password set yet? Use the email link instead, then set one from the signed-in menu.</p>`}
       ${authMsg?`<div class="auth-msg ${authMsg.ok?'ok':'err'}">${esc(authMsg.text)}</div>`:''}`;
-    document.getElementById('authForm').addEventListener('submit',handleMagicLinkSubmit);
+    pop.querySelectorAll('.auth-tab').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation(); authTab=b.dataset.tab; authMsg=null; renderAuthPop();}));
+    if(authTab==='link') document.getElementById('authForm').addEventListener('submit',handleMagicLinkSubmit);
+    else document.getElementById('authPwForm').addEventListener('submit',handlePasswordSignIn);
   }
 }
 
@@ -890,6 +1003,155 @@ async function handleMagicLinkSubmit(e){
   renderAuthPop();
 }
 
+async function handlePasswordSignIn(e){
+  e.preventDefault();
+  const email=document.getElementById('authPwEmail').value.trim();
+  const password=document.getElementById('authPwPassword').value;
+  const btn=document.getElementById('authPwSubmit');
+  btn.disabled=true; btn.textContent='Signing in…';
+  try{
+    const {error}=await supabaseClient.auth.signInWithPassword({email,password});
+    if(error) throw error;
+    // onAuthStateChange handles closing the popover and rendering signed-in state
+  }catch(err){
+    authMsg={text:err.message||'Could not sign in with that email/password.',ok:false};
+    btn.disabled=false; btn.textContent='Sign in';
+    renderAuthPop();
+  }
+}
+
+function toggleSetPasswordForm(){
+  const area=document.getElementById('setPasswordArea');
+  if(area.dataset.open==='1'){ area.innerHTML=''; area.dataset.open=''; return; }
+  area.dataset.open='1';
+  area.innerHTML=`<form id="setPwForm" style="margin-top:8px">
+      <input id="newPw1" type="password" placeholder="New password" minlength="6" required autocomplete="new-password">
+      <input id="newPw2" type="password" placeholder="Confirm new password" minlength="6" required autocomplete="new-password">
+      <button class="pill-btn primary" type="submit" style="width:100%;justify-content:center">Save password</button>
+      <div id="setPwMsg" class="auth-msg"></div>
+    </form>`;
+  document.getElementById('setPwForm').addEventListener('submit',async e=>{
+    e.preventDefault();
+    const p1=document.getElementById('newPw1').value, p2=document.getElementById('newPw2').value;
+    const msg=document.getElementById('setPwMsg');
+    if(p1!==p2){ msg.textContent='Passwords do not match.'; msg.className='auth-msg err'; return; }
+    const btn=e.target.querySelector('button[type="submit"]');
+    btn.disabled=true; btn.textContent='Saving…';
+    try{
+      const {error}=await supabaseClient.auth.updateUser({password:p1});
+      if(error) throw error;
+      msg.textContent='Password set — you can sign in with it any time from now on.';
+      msg.className='auth-msg ok';
+      e.target.reset();
+    }catch(err){
+      msg.textContent=err.message||'Could not set password.';
+      msg.className='auth-msg err';
+      btn.disabled=false; btn.textContent='Save password';
+    }
+  });
+}
+
+async function loadAdminPanel(){
+  const panel=document.getElementById('adminPanel');
+  if(!panel) return;
+  try{
+    const [{data:admins,error:e1},{data:invites,error:e2},{data:bans,error:e3}]=await Promise.all([
+      supabaseClient.from('admins').select('email').order('created_at'),
+      supabaseClient.from('admin_invites').select('email').order('created_at'),
+      supabaseClient.from('banned_emails').select('email,reason').order('created_at')
+    ]);
+    if(e1) throw e1; if(e2) throw e2; if(e3) throw e3;
+    const adminRow=a=>`<div class="admin-row"><span class="val">${esc(a.email)}${a.email===currentUser.email?' (you)':''}</span>${admins.length>1?`<button type="button" class="btn-ghost danger" data-remove-admin="${esc(a.email)}" style="padding:3px 8px;font-size:11px">Remove</button>`:''}</div>`;
+    const banRow=b=>`<div class="admin-row"><span class="val">${esc(b.email)}${b.reason?' — '+esc(b.reason):''}</span><button type="button" class="btn-ghost" data-unban="${esc(b.email)}" style="padding:3px 8px;font-size:11px">Unban</button></div>`;
+    panel.innerHTML=`
+      <h4 style="margin:0 0 8px">Admins</h4>
+      ${admins.map(adminRow).join('')}
+      ${invites.length?`<h4 style="margin:12px 0 6px">Pending invites</h4>${invites.map(i=>`<div class="admin-row"><span class="val" style="color:var(--muted)">${esc(i.email)}</span></div>`).join('')}`:''}
+      <form id="inviteForm" style="margin-top:10px">
+        <input id="inviteEmail" type="email" placeholder="new-admin@lab.edu" required>
+        <button class="pill-btn" type="submit" style="width:100%;justify-content:center">Invite as admin</button>
+      </form>
+      <div id="inviteMsg" class="auth-msg"></div>
+      <h4 style="margin:14px 0 6px">Banned emails</h4>
+      ${bans.length?bans.map(banRow).join(''):'<p style="margin:0;color:var(--muted);font-size:12px">None.</p>'}
+      <form id="banForm" style="margin-top:10px">
+        <input id="banEmail" type="email" placeholder="email to ban" required>
+        <input id="banReason" type="text" placeholder="Reason (optional)">
+        <button class="btn-ghost danger" type="submit" style="width:100%;justify-content:center">Ban email</button>
+      </form>
+      <div id="banMsg" class="auth-msg"></div>`;
+    panel.querySelectorAll('[data-remove-admin]').forEach(btn=>btn.addEventListener('click',async()=>{
+      const email=btn.dataset.removeAdmin;
+      if(!confirm(`Remove admin access for ${email}?`)) return;
+      try{
+        const {data,error}=await supabaseClient.from('admins').delete().eq('email',email).select();
+        if(error) throw error;
+        if(!data||data.length===0) throw new Error('Not permitted, or already removed.');
+        if(email===currentUser.email){ await refreshAdminStatus(); renderAuth(); refreshOpenDrawerIfAny(); }
+        else loadAdminPanel();
+      }catch(err){ alert('Could not remove admin: '+(err.message||err)); }
+    }));
+    panel.querySelectorAll('[data-unban]').forEach(btn=>btn.addEventListener('click',async()=>{
+      const email=btn.dataset.unban;
+      try{
+        const {data,error}=await supabaseClient.from('banned_emails').delete().eq('email',email).select();
+        if(error) throw error;
+        if(!data||data.length===0) throw new Error('Not permitted, or already removed.');
+        loadAdminPanel();
+      }catch(err){ alert('Could not unban: '+(err.message||err)); }
+    }));
+    document.getElementById('inviteForm').addEventListener('submit',async e=>{
+      e.preventDefault();
+      const email=document.getElementById('inviteEmail').value.trim().toLowerCase();
+      const msg=document.getElementById('inviteMsg');
+      try{
+        const {error}=await supabaseClient.from('admin_invites').insert({email,invited_by:currentUser.id});
+        if(error) throw error;
+        msg.textContent='Invited — they\'ll become an admin next time they sign in.';
+        msg.className='auth-msg ok';
+        loadAdminPanel();
+      }catch(err){
+        msg.textContent=err.message||'Could not add that invite.';
+        msg.className='auth-msg err';
+      }
+    });
+    document.getElementById('banForm').addEventListener('submit',async e=>{
+      e.preventDefault();
+      const email=document.getElementById('banEmail').value.trim().toLowerCase();
+      const reason=document.getElementById('banReason').value.trim();
+      const msg=document.getElementById('banMsg');
+      try{
+        const {error}=await supabaseClient.from('banned_emails').insert({email,reason:reason||null,banned_by:currentUser.id});
+        if(error) throw error;
+        msg.textContent='Banned. Their existing sessions can still read, but every write will now be rejected.';
+        msg.className='auth-msg ok';
+        loadAdminPanel();
+      }catch(err){
+        msg.textContent=err.message||'Could not ban that email.';
+        msg.className='auth-msg err';
+      }
+    });
+  }catch(err){
+    panel.innerHTML=`<div class="auth-msg err">Could not load the admin panel: ${esc(err.message||err)}</div>`;
+  }
+}
+
+async function refreshAdminStatus(){
+  if(!currentUser){ isAdmin=false; isBanned=false; wasAdminBefore=false; return; }
+  try{ await supabaseClient.rpc('claim_admin_invite'); }catch(e){}
+  try{ await supabaseClient.from('profiles').upsert({user_id:currentUser.id,email:currentUser.email}); }catch(e){}
+  try{
+    const {data}=await supabaseClient.from('admins').select('user_id').eq('user_id',currentUser.id).maybeSingle();
+    const nowAdmin=!!data;
+    if(nowAdmin && !wasAdminBefore) showToast('Welcome — you\'ve been granted admin access. You can now manage other admins, review flagged deletions, ban emails, and see who made each change.');
+    isAdmin=nowAdmin; wasAdminBefore=nowAdmin;
+  }catch(e){ isAdmin=false; }
+  try{
+    const {data}=await supabaseClient.from('banned_emails').select('email').eq('email',currentUser.email.toLowerCase()).maybeSingle();
+    isBanned=!!data;
+  }catch(e){ isBanned=false; }
+}
+
 document.getElementById('authBtn').addEventListener('click',e=>{
   e.stopPropagation();
   const pop=document.getElementById('authPop');
@@ -901,14 +1163,58 @@ document.addEventListener('click',e=>{
   if(wrap && !wrap.contains(e.target)) document.getElementById('authPop').hidden=true;
 });
 
+// ── Notifications: live activity feed (Phase 6) ──────────────────────────
+const ACTION_LABEL={added:'was added',edited:'was edited',flagged_review:'was flagged for revision',verified:'was marked verified',flagged_deletion:'was flagged for deletion',deletion_cancelled:'had its deletion flag cancelled',deleted:'was permanently deleted'};
+let activityCache=[], lastSeenActivityId=parseInt(localStorage.getItem('phageLibLastSeenActivity')||'0',10);
+
+async function loadActivity(){
+  try{
+    const {data,error}=await supabaseClient.from('activity_log').select('*').order('id',{ascending:false}).limit(30);
+    if(error) throw error;
+    activityCache=data||[];
+    if(isAdmin) await ensureEmailsResolved(activityCache.map(a=>a.actor));
+    renderNotifBadge(); renderNotifPop();
+  }catch(e){ /* notifications are a nice-to-have, not a load-bearing feature */ }
+}
+function renderNotifBadge(){
+  const unread=activityCache.filter(a=>a.id>lastSeenActivityId).length;
+  const badge=document.getElementById('notifBadge');
+  if(unread>0){ badge.style.display='inline'; badge.textContent=unread>99?'99+':unread; }
+  else badge.style.display='none';
+}
+function renderNotifPop(){
+  const pop=document.getElementById('notifPop');
+  if(!activityCache.length){ pop.innerHTML='<p style="margin:0;color:var(--muted);font-size:12.5px">No activity yet.</p>'; return; }
+  pop.innerHTML=`<h4 style="margin:0 0 8px">Recent activity</h4>`+activityCache.map(a=>`
+    <div class="activity-item">
+      <div><b>${esc(a.phage_name)}</b> ${esc(ACTION_LABEL[a.action]||a.action)}</div>
+      ${isAdmin?`<div class="who">${a.actor?esc(whoLabel(a.actor)):'unknown user'}</div>`:''}
+      <div class="when">${new Date(a.created_at).toLocaleString()}</div>
+    </div>`).join('');
+}
+document.getElementById('notifBtn').addEventListener('click',e=>{
+  e.stopPropagation();
+  const pop=document.getElementById('notifPop');
+  pop.hidden=!pop.hidden;
+  if(!pop.hidden && activityCache.length){
+    lastSeenActivityId=Math.max(...activityCache.map(a=>a.id));
+    localStorage.setItem('phageLibLastSeenActivity',String(lastSeenActivityId));
+    renderNotifBadge();
+  }
+});
+document.addEventListener('click',e=>{
+  const wrap=document.getElementById('notifWrap');
+  if(wrap && !wrap.contains(e.target)) document.getElementById('notifPop').hidden=true;
+});
+
 document.getElementById('scrim').addEventListener('click',()=>{closeDrawer();closeHelp();closeAddModal();});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeDrawer();closeHelp();closeAddModal();document.getElementById('authPop').hidden=true;}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeDrawer();closeHelp();closeAddModal();document.getElementById('authPop').hidden=true;document.getElementById('notifPop').hidden=true;}});
 document.querySelectorAll('.segment button').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('.segment button').forEach(x=>x.setAttribute('aria-pressed','false'));
   b.setAttribute('aria-pressed','true'); state.seg=b.dataset.seg; renderOverview(); render();}));
 document.getElementById('search').addEventListener('input',e=>{state.q=e.target.value;render();});
 const bind=(id,key)=>document.getElementById(id).addEventListener('change',e=>{state[key]=e.target.value;render();});
-bind('f-domain','domain');bind('f-hostrange','hostrange');bind('f-tail','tail');bind('f-gram','gram');bind('f-gb','gb');bind('f-up','up');
+bind('f-domain','domain');bind('f-hostrange','hostrange');bind('f-tail','tail');bind('f-gram','gram');bind('f-gb','gb');bind('f-up','up');bind('f-pendel','pendel');
 
 function updateExpandBtn(){document.getElementById('expandAll').textContent=state.groupBy==='none'?'Collapse all':'Expand all';}
 document.getElementById('f-group').addEventListener('change',e=>{
@@ -962,11 +1268,21 @@ async function init(){
   }
   try{
     supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    supabaseClient.auth.onAuthStateChange((event,session)=>{
+    supabaseClient.auth.onAuthStateChange(async(event,session)=>{
       currentUser=session?session.user:null;
       if(event==='SIGNED_IN'||event==='SIGNED_OUT'){authMsg=null; document.getElementById('authPop').hidden=true;}
+      await refreshAdminStatus();
       renderAuth();
+      refreshOpenDrawerIfAny();
+      if(currentUser) loadActivity();
     });
+    supabaseClient.channel('activity-feed')
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'activity_log'},payload=>{
+        activityCache.unshift(payload.new);
+        if(activityCache.length>30) activityCache.pop();
+        (isAdmin?ensureEmailsResolved([payload.new.actor]):Promise.resolve()).then(()=>{renderNotifBadge(); renderNotifPop();});
+      })
+      .subscribe();
     DATA = await loadData();
   }catch(e){
     showError(e);
