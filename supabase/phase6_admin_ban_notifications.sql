@@ -3,13 +3,71 @@
 --
 -- Run this ONCE in the Supabase SQL editor against the live project. It is
 -- purely additive (new tables/columns/functions) except for replacing the
--- phages "delete" policy (see below) — safe to run as-is.
+-- phages insert/update/delete policies (see below) — safe to run as-is.
 --
 -- Password auth needs no SQL — Supabase Auth supports email+password out of
 -- the box; the client just calls supabase.auth.updateUser({password}) once
 -- signed in, and supabase.auth.signInWithPassword() afterward.
+--
+-- Ordering matters here: tables are created first, then the helper
+-- functions that query them (Postgres validates a LANGUAGE SQL function's
+-- body against the catalog at CREATE FUNCTION time, so the tables it
+-- references must already exist), then the RLS policies that call those
+-- functions.
 
--- ── Helper functions (used inside RLS policies below) ────────────────────
+-- ── Tables ────────────────────────────────────────────────────────────────
+
+-- Profiles: lets admins resolve a uuid (updated_by / activity actor) to an
+-- email. Regular users can only ever see their OWN row.
+create table if not exists public.profiles (
+  user_id     uuid primary key references auth.users(id) on delete cascade,
+  email       text not null,
+  created_at  timestamptz not null default now()
+);
+alter table public.profiles enable row level security;
+
+-- Admin roles.
+create table if not exists public.admins (
+  user_id     uuid primary key references auth.users(id) on delete cascade,
+  email       text not null,
+  granted_by  uuid references auth.users(id),
+  created_at  timestamptz not null default now()
+);
+alter table public.admins enable row level security;
+
+-- Admin invites: an allow-list an admin adds an email to. No email is sent
+-- by us — the person just becomes an admin next time they sign in normally
+-- (magic link or password) and the client claims the invite.
+create table if not exists public.admin_invites (
+  email       text primary key,
+  invited_by  uuid references auth.users(id),
+  created_at  timestamptz not null default now()
+);
+alter table public.admin_invites enable row level security;
+
+-- Banned emails: cuts off write access (not read access, which is already
+-- public) without needing the service_role Admin API.
+create table if not exists public.banned_emails (
+  email       text primary key,
+  banned_by   uuid references auth.users(id),
+  reason      text,
+  created_at  timestamptz not null default now()
+);
+alter table public.banned_emails enable row level security;
+
+-- Activity log: one row per phages insert/update/delete, via trigger below
+-- so it captures every change regardless of code path.
+create table if not exists public.activity_log (
+  id          bigint generated always as identity primary key,
+  action      text not null,
+  phage_name  text not null,
+  phage_id    uuid,
+  actor       uuid references auth.users(id),
+  created_at  timestamptz not null default now()
+);
+alter table public.activity_log enable row level security;
+
+-- ── Helper functions (tables above must exist first) ────────────────────
 create or replace function public.is_admin()
 returns boolean language sql stable security definer set search_path = public as $$
   select exists(select 1 from public.admins where user_id = auth.uid());
@@ -23,52 +81,6 @@ returns boolean language sql stable security definer set search_path = public as
     where u.id = auth.uid()
   );
 $$;
-
--- ── Profiles: lets admins resolve a uuid (updated_by / activity actor) to
---    an email. Regular users can only ever see their OWN row. ────────────
-create table if not exists public.profiles (
-  user_id     uuid primary key references auth.users(id) on delete cascade,
-  email       text not null,
-  created_at  timestamptz not null default now()
-);
-alter table public.profiles enable row level security;
-
-create policy "self manage own profile" on public.profiles
-  for all to authenticated
-  using (auth.uid() = user_id) with check (auth.uid() = user_id);
-
-create policy "admins read all profiles" on public.profiles
-  for select to authenticated using (public.is_admin());
-
--- ── Admin roles ──────────────────────────────────────────────────────────
-create table if not exists public.admins (
-  user_id     uuid primary key references auth.users(id) on delete cascade,
-  email       text not null,
-  granted_by  uuid references auth.users(id),
-  created_at  timestamptz not null default now()
-);
-alter table public.admins enable row level security;
-
-create policy "authenticated read admins" on public.admins
-  for select to authenticated using (true);
-
-create policy "admins manage admins" on public.admins
-  for all to authenticated
-  using (public.is_admin()) with check (public.is_admin());
-
--- ── Admin invites: an allow-list an admin adds an email to. No email is
---    sent by us — the person just becomes an admin next time they sign in
---    normally (magic link or password) and the client claims the invite. ──
-create table if not exists public.admin_invites (
-  email       text primary key,
-  invited_by  uuid references auth.users(id),
-  created_at  timestamptz not null default now()
-);
-alter table public.admin_invites enable row level security;
-
-create policy "admins manage invites" on public.admin_invites
-  for all to authenticated
-  using (public.is_admin()) with check (public.is_admin());
 
 create or replace function public.claim_admin_invite()
 returns boolean
@@ -99,43 +111,6 @@ end;
 $$;
 grant execute on function public.claim_admin_invite() to authenticated;
 
--- ── Banned emails: cuts off write access (not read access, which is
---    already public) without needing the service_role Admin API. ────────
-create table if not exists public.banned_emails (
-  email       text primary key,
-  banned_by   uuid references auth.users(id),
-  reason      text,
-  created_at  timestamptz not null default now()
-);
-alter table public.banned_emails enable row level security;
-
-create policy "admins manage bans" on public.banned_emails
-  for all to authenticated
-  using (public.is_admin()) with check (public.is_admin());
-
--- lets a signed-in user's client check "am I banned" without exposing the
--- rest of the ban list to them
-create policy "self check own ban" on public.banned_emails
-  for select to authenticated
-  using (
-    exists (select 1 from auth.users u where u.id = auth.uid() and lower(u.email) = lower(banned_emails.email))
-  );
-
--- ── Activity log: one row per phages insert/update/delete, via trigger
---    below so it captures every change regardless of code path. ─────────
-create table if not exists public.activity_log (
-  id          bigint generated always as identity primary key,
-  action      text not null,
-  phage_name  text not null,
-  phage_id    uuid,
-  actor       uuid references auth.users(id),
-  created_at  timestamptz not null default now()
-);
-alter table public.activity_log enable row level security;
-
-create policy "authenticated read activity" on public.activity_log
-  for select to authenticated using (true);
-
 create or replace function public.log_phage_activity()
 returns trigger
 language plpgsql security definer set search_path = public as $$
@@ -165,6 +140,41 @@ begin
 end;
 $$;
 
+-- ── RLS policies (functions above must exist first) ──────────────────────
+create policy "self manage own profile" on public.profiles
+  for all to authenticated
+  using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+create policy "admins read all profiles" on public.profiles
+  for select to authenticated using (public.is_admin());
+
+create policy "authenticated read admins" on public.admins
+  for select to authenticated using (true);
+
+create policy "admins manage admins" on public.admins
+  for all to authenticated
+  using (public.is_admin()) with check (public.is_admin());
+
+create policy "admins manage invites" on public.admin_invites
+  for all to authenticated
+  using (public.is_admin()) with check (public.is_admin());
+
+create policy "admins manage bans" on public.banned_emails
+  for all to authenticated
+  using (public.is_admin()) with check (public.is_admin());
+
+-- lets a signed-in user's client check "am I banned" without exposing the
+-- rest of the ban list to them
+create policy "self check own ban" on public.banned_emails
+  for select to authenticated
+  using (
+    exists (select 1 from auth.users u where u.id = auth.uid() and lower(u.email) = lower(banned_emails.email))
+  );
+
+create policy "authenticated read activity" on public.activity_log
+  for select to authenticated using (true);
+
+-- ── Trigger + Realtime ────────────────────────────────────────────────────
 drop trigger if exists phages_log_activity on public.phages;
 create trigger phages_log_activity
   after insert or update or delete on public.phages
