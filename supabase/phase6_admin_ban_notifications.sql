@@ -82,6 +82,15 @@ returns boolean language sql stable security definer set search_path = public as
   );
 $$;
 
+-- RLS policies run with the CALLING role's own grants, and `authenticated`
+-- has no direct grant on auth.users — so any policy that queries it inline
+-- (rather than through a SECURITY DEFINER function like this one) fails with
+-- "permission denied for table users". This is the fix for exactly that bug.
+create or replace function public.my_email()
+returns text language sql stable security definer set search_path = public as $$
+  select email from auth.users where id = auth.uid();
+$$;
+
 create or replace function public.claim_admin_invite()
 returns boolean
 language plpgsql security definer set search_path = public as $$
@@ -141,36 +150,47 @@ end;
 $$;
 
 -- ── RLS policies (functions above must exist first) ──────────────────────
+-- Every policy is dropped-if-exists first so this whole file is safe to
+-- re-run from scratch (e.g. against a fresh project) without erroring on
+-- "policy already exists".
+drop policy if exists "self manage own profile" on public.profiles;
 create policy "self manage own profile" on public.profiles
   for all to authenticated
   using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+drop policy if exists "admins read all profiles" on public.profiles;
 create policy "admins read all profiles" on public.profiles
   for select to authenticated using (public.is_admin());
 
+drop policy if exists "authenticated read admins" on public.admins;
 create policy "authenticated read admins" on public.admins
   for select to authenticated using (true);
 
+drop policy if exists "admins manage admins" on public.admins;
 create policy "admins manage admins" on public.admins
   for all to authenticated
   using (public.is_admin()) with check (public.is_admin());
 
+drop policy if exists "admins manage invites" on public.admin_invites;
 create policy "admins manage invites" on public.admin_invites
   for all to authenticated
   using (public.is_admin()) with check (public.is_admin());
 
+drop policy if exists "admins manage bans" on public.banned_emails;
 create policy "admins manage bans" on public.banned_emails
   for all to authenticated
   using (public.is_admin()) with check (public.is_admin());
 
 -- lets a signed-in user's client check "am I banned" without exposing the
--- rest of the ban list to them
+-- rest of the ban list to them — goes through my_email() (SECURITY DEFINER),
+-- not a direct auth.users reference, since `authenticated` can't read
+-- auth.users on its own.
+drop policy if exists "self check own ban" on public.banned_emails;
 create policy "self check own ban" on public.banned_emails
   for select to authenticated
-  using (
-    exists (select 1 from auth.users u where u.id = auth.uid() and lower(u.email) = lower(banned_emails.email))
-  );
+  using (lower(email) = lower(public.my_email()));
 
+drop policy if exists "authenticated read activity" on public.activity_log;
 create policy "authenticated read activity" on public.activity_log
   for select to authenticated using (true);
 
@@ -181,7 +201,15 @@ create trigger phages_log_activity
   for each row execute function public.log_phage_activity();
 
 -- Realtime push for the notification bell (client subscribes to this)
-alter publication supabase_realtime add table public.activity_log;
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname='supabase_realtime' and schemaname='public' and tablename='activity_log'
+  ) then
+    alter publication supabase_realtime add table public.activity_log;
+  end if;
+end $$;
 
 -- ── Delete safeguard on phages: flag now, hard-delete only after 72h,
 --    admin-only, and blocked entirely for banned emails. ─────────────────
