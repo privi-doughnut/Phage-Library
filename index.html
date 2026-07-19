@@ -47,6 +47,28 @@ button{font-family:inherit; cursor:pointer}
 .pill-btn:hover{border-color:var(--accent); color:var(--accent-ink)}
 .pill-btn.primary{background:var(--accent-wash); color:var(--accent-ink); border-color:transparent}
 
+.auth-wrap{position:relative}
+.auth-pop{position:absolute; top:calc(100% + 8px); right:0; width:272px; background:var(--surface); border:1px solid var(--line); border-radius:10px; box-shadow:var(--shadow); padding:16px; z-index:50}
+.auth-pop h4{margin:0 0 4px; font-size:13px}
+.auth-pop p{margin:0 0 12px; color:var(--muted); font-size:12px; line-height:1.45}
+.auth-pop input{width:100%; border:1px solid var(--line); background:var(--surface); color:var(--ink); border-radius:8px; padding:8px 10px; font-size:13px; font-family:inherit; margin-bottom:10px}
+.auth-pop input:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-wash)}
+.auth-msg{font-size:12px; margin-top:10px; line-height:1.4}
+.auth-msg.ok{color:var(--ok)}
+.auth-msg.err{color:var(--warn)}
+.auth-signed .lab{font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted)}
+.auth-signed .val{font-size:13px; margin-top:3px; word-break:break-all}
+
+.dr-actions{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px}
+.btn-ghost.danger{color:var(--warn); border-color:color-mix(in srgb,var(--warn) 45%,transparent)}
+.btn-ghost.danger:hover{border-color:var(--warn); color:var(--warn)}
+.editform h4{margin:18px 0 2px; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--faint)}
+.editform h4:first-child{margin-top:0}
+.field-lab{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:10px 0 4px}
+.editform input, .editform select, .editform textarea{width:100%; border:1px solid var(--line); background:var(--surface); color:var(--ink); border-radius:8px; padding:8px 10px; font-size:13px; font-family:inherit}
+.editform textarea{resize:vertical}
+.editform input:focus, .editform select:focus, .editform textarea:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-wash)}
+
 .coverage{display:flex; gap:0; margin:16px auto 0; flex-wrap:wrap; border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; background:var(--surface)}
 .cov{flex:1; min-width:120px; padding:12px 16px; border-right:1px solid var(--line-2)}
 .cov:last-child{border-right:none}
@@ -200,6 +222,10 @@ footer{padding:24px; color:var(--faint); font-size:11.5px; border-top:1px solid 
     <div class="mast-actions">
       <button class="pill-btn primary" id="helpBtn">? How to use</button>
       <button class="pill-btn" id="themeBtn"><span id="themeIcon">◐</span><span id="themeLabel">Lab</span></button>
+      <div class="auth-wrap" id="authWrap">
+        <button class="pill-btn" id="authBtn">Sign in</button>
+        <div class="auth-pop" id="authPop" hidden></div>
+      </div>
     </div>
   </div>
   <div class="wrap coverage" id="coverage"></div>
@@ -239,6 +265,7 @@ footer{padding:24px; color:var(--faint); font-size:11.5px; border-top:1px solid 
     <select id="f-gb"><option value="">GenBank: any</option><option value="yes">Has GenBank link</option><option value="no">No GenBank</option></select>
     <select id="f-up"><option value="">UniProt: any</option><option value="yes">Has UniProt RBP</option><option value="no">No UniProt</option></select>
     <button class="btn-ghost" id="exportBtn">Export view (CSV)</button>
+    <button class="btn-ghost" id="addPhageBtn" style="display:none">+ Add phage</button>
   </div>
   <div class="chips" id="chips"></div>
   <div class="resultline" id="resultline"></div>
@@ -286,6 +313,7 @@ footer{padding:24px; color:var(--faint); font-size:11.5px; border-top:1px solid 
     <div class="m-step"><div class="num">5</div><div class="txt"><h4>Jump in from the Overview</h4><p>The tiles at the top show the shape of the library. Click any bar or number to jump straight to those phages.</p></div></div>
     <div class="m-step"><div class="num">6</div><div class="txt"><h4>Click a row for the full record</h4><p>Any row opens a panel with everything: the receptor, its location on the cell, the source-database links, the paper it came from, and — for flagged rows — exactly why it needs a second look.</p></div></div>
     <div class="m-step"><div class="num">7</div><div class="txt"><h4>Take the data with you</h4><p><b>Export view (CSV)</b> downloads whatever you're currently looking at as a spreadsheet.</p></div></div>
+    <div class="m-step"><div class="num">8</div><div class="txt"><h4>Sign in to edit</h4><p>Lab members can sign in (top right, one-time email link) to edit any record, add new phages, mark rows Verified, or delete a genuinely wrong entry. Signed-out visitors keep full read/search/export access — signing in only unlocks writing.</p></div></div>
     <div class="m-glossary">
       <h3>Plain-language glossary</h3>
       <dl class="gloss">
@@ -299,6 +327,17 @@ footer{padding:24px; color:var(--faint); font-size:11.5px; border-top:1px solid 
         <dt>Needs revision</dt><dd>The automated checks weren't fully confident, so a person should verify it.</dd>
       </dl>
     </div>
+  </div>
+</div>
+
+<div class="modal" id="addModal" role="dialog" aria-modal="true" aria-label="Add phage">
+  <div class="m-head">
+    <button class="close" aria-label="Close" onclick="closeAddModal()">✕</button>
+    <h2>Add a phage</h2>
+    <p>New entries start in <b>Needs revision</b> until a lab member confirms them — this keeps unverified additions clearly isolated from the PhReD-sourced set (rule 4). Only paste links/accessions you've actually resolved — never a guessed one.</p>
+  </div>
+  <div class="m-body">
+    <form id="addForm" class="editform"></form>
   </div>
 </div>
 
@@ -348,6 +387,10 @@ function mapRow(r){
     hostRangeNote: nz(r.host_range_note),
     ref: nz(r.reference),
     doi: nz(r.doi),
+    source: nz(r.source),
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    updatedBy: r.updated_by,
     gbHas: yn(r.has_genbank),
     gbLink: nz(r.genbank_link),
     gbAcc: nz(r.genbank_accession),
@@ -377,6 +420,90 @@ const domShort=d=>d==='Capsular Polysaccharide'?'Capsular':d==='Membrane Protein
 const domVar=d=>({'LPS':'--d-lps','Membrane Proteins':'--d-mem','Capsular Polysaccharide':'--d-cap','Pili':'--d-pili','Flagella':'--d-flag','Teichoic Acids':'--d-teich','N/A':'--d-na'}[d]||'--d-na');
 const DOMAINS=['LPS','Membrane Proteins','Capsular Polysaccharide','Pili','Flagella','Teichoic Acids','N/A'];
 const HRORDER=['Narrow','Broad','Undetermined'];
+const FAMILIES=['Myoviridae','Siphoviridae','Podoviridae','Autographiviridae','Ackermannviridae','Herelleviridae','Drexlerviridae','Inoviridae','Leviviridae','Microviridae','Tectiviridae','Corticoviridae','Cystoviridae'];
+const GRAMS=['Gram negative','Gram positive','Acid fast'];
+
+// ── Edit / add field definitions (BUILD_SPEC.md §5/§6/§7) ───────────────
+// Shared by the drawer's edit mode and the "Add phage" modal so both forms
+// stay in lock-step with the schema and controlled vocabularies.
+const EDIT_FIELDS=[
+  {key:'phage',col:'phage',label:'Phage',type:'text',required:true,section:'Identity'},
+  {key:'tailed',col:'tailed',label:'Tailed',type:'bool',section:'Identity'},
+  {key:'tailMorph',col:'tail_morphology',label:'Tail morphology',type:'text',required:true,section:'Identity'},
+  {key:'family',col:'family',label:'Family',type:'select',options:FAMILIES,required:true,section:'Identity'},
+
+  {key:'host',col:'main_host',label:'Host (bacterium)',type:'text',required:true,section:'Host'},
+  {key:'taxid',col:'host_taxid',label:'NCBI taxid',type:'text',section:'Host'},
+  {key:'hostCanon',col:'host_canonical_name',label:'NCBI canonical name',type:'text',section:'Host'},
+  {key:'gram',col:'gram_stain',label:'Gram stain',type:'select',options:GRAMS,required:true,section:'Host'},
+
+  {key:'recLoc',col:'receptor_location',label:'Location on cell',type:'text',section:'Receptor'},
+  {key:'receptor',col:'host_receptor',label:'Host receptor',type:'text',required:true,section:'Receptor'},
+  {key:'domain',col:'receptor_domain',label:'Receptor domain',type:'select',options:DOMAINS,required:true,section:'Receptor'},
+  {key:'domainClass',col:'domain_class',label:'Domain class',type:'select',options:['','Glycan','Protein'],section:'Receptor'},
+
+  {key:'hostRange',col:'host_range',label:'Host range',type:'select',options:HRORDER,required:true,section:'Host range (predicted, not measured)'},
+  {key:'hostRangeBasis',col:'host_range_basis',label:'Basis',type:'select',options:['predicted-from-receptor','insufficient-data'],required:true,section:'Host range (predicted, not measured)'},
+  {key:'hrConf',col:'host_range_confidence',label:'Confidence',type:'select',options:['high','medium','low','none'],required:true,section:'Host range (predicted, not measured)'},
+  {key:'hostRangeNote',col:'host_range_note',label:'Basis note',type:'textarea',section:'Host range (predicted, not measured)'},
+
+  {key:'ref',col:'reference',label:'Citation',type:'text',section:'Reference / provenance'},
+  {key:'doi',col:'doi',label:'DOI',type:'text',section:'Reference / provenance'},
+  {key:'source',col:'source',label:'Source',type:'text',required:true,section:'Reference / provenance'},
+
+  {key:'gbHas',col:'has_genbank',label:'Has GenBank record',type:'bool',section:'GenBank (host receptor gene)'},
+  {key:'gbAcc',col:'genbank_accession',label:'Accession',type:'text',section:'GenBank (host receptor gene)'},
+  {key:'gbLink',col:'genbank_link',label:'Link (URL)',type:'text',section:'GenBank (host receptor gene)'},
+  {key:'gbTier',col:'genbank_tier',label:'Tier',type:'select',options:['','specific gene','host genome (fallback)','none'],section:'GenBank (host receptor gene)'},
+  {key:'gbGene',col:'genbank_gene',label:'Gene',type:'text',section:'GenBank (host receptor gene)'},
+
+  {key:'upHas',col:'has_uniprot',label:'Has UniProt record',type:'bool',section:'UniProt (phage RBP)'},
+  {key:'upAcc',col:'uniprot_accession',label:'Accession',type:'text',section:'UniProt (phage RBP)'},
+  {key:'upLink',col:'uniprot_link',label:'Link (URL)',type:'text',section:'UniProt (phage RBP)'},
+  {key:'upTier',col:'uniprot_tier',label:'Tier',type:'select',options:['','specific RBP','other tail protein','tail protein (internal, low value)','none'],section:'UniProt (phage RBP)'},
+  {key:'upProtein',col:'uniprot_protein',label:'Protein name',type:'text',section:'UniProt (phage RBP)'},
+];
+
+function fieldInputHTML(f,val){
+  const id='f_'+f.key, req=f.required?' required':'';
+  if(f.type==='select'){
+    let opts=f.options.map(o=>`<option value="${esc(o)}"${o===val?' selected':''}>${o===''?'—':esc(o)}</option>`).join('');
+    if(f.required && !f.options.includes('')){
+      opts=`<option value=""${val===''?' selected':''} disabled hidden>Select…</option>`+opts;
+    }
+    return `<label class="field-lab" for="${id}">${f.label}${f.required?' *':''}</label><select id="${id}"${req}>${opts}</select>`;
+  }
+  if(f.type==='bool'){
+    // 'no' listed first so a blank add-phage form defaults to the conservative
+    // answer (no unearned GenBank/UniProt claim) rather than silently to 'yes'.
+    const opts=['no','yes'].map(o=>`<option value="${o}"${o===val?' selected':''}>${o==='yes'?'Yes':'No'}</option>`).join('');
+    return `<label class="field-lab" for="${id}">${f.label}</label><select id="${id}">${opts}</select>`;
+  }
+  if(f.type==='textarea'){
+    return `<label class="field-lab" for="${id}">${f.label}</label><textarea id="${id}" rows="2">${esc(val)}</textarea>`;
+  }
+  return `<label class="field-lab" for="${id}">${f.label}${f.required?' *':''}</label><input id="${id}" type="text" value="${esc(val)}"${req}>`;
+}
+function renderFieldsForm(values){
+  const sections=[...new Set(EDIT_FIELDS.map(f=>f.section))];
+  return sections.map(sec=>{
+    const fields=EDIT_FIELDS.filter(f=>f.section===sec);
+    return `<h4>${esc(sec)}</h4>`+fields.map(f=>fieldInputHTML(f,values[f.key]!=null?values[f.key]:'')).join('');
+  }).join('');
+}
+function readFieldsForm(){
+  const vals={};
+  EDIT_FIELDS.forEach(f=>{vals[f.key]=document.getElementById('f_'+f.key).value;});
+  return vals;
+}
+function toDbPatch(vals){
+  const patch={};
+  EDIT_FIELDS.forEach(f=>{
+    if(f.type==='bool'){patch[f.col]=vals[f.key]==='yes';}
+    else{const v=(vals[f.key]||'').trim(); patch[f.col]=v===''?null:v;}
+  });
+  return patch;
+}
 
 const state={seg:'verified', q:'', sort:'phage', dir:1, groupBy:'domain', lastGroup:'domain', expanded:new Set(),
   domain:'', hostrange:'', tail:'', gram:'', gb:'', up:''};
@@ -539,8 +666,21 @@ function renderChips(){
   c.appendChild(clr);
 }
 
+let drawerEditing=false;
+
 function openDrawer(d){
+  drawerEditing=false;
+  renderDrawerContent(d);
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('scrim').classList.add('open');
+}
+function renderDrawerContent(d){
   const dr=document.getElementById('drawer');
+  if(drawerEditing){dr.innerHTML=drawerEditHTML(d); bindDrawerEditEvents(d);}
+  else{dr.innerHTML=drawerViewHTML(d); bindDrawerViewEvents(d);}
+}
+
+function drawerViewHTML(d){
   const hrPred=d.hostRangeBasis&&d.hostRangeBasis.startsWith('predicted');
   const gbLab=`Host receptor · ${esc(d.gbTier)}`+(d.gbGene?` · gene ${esc(d.gbGene)}`:'');
   const gbBody=d.gbHas==='yes'
@@ -552,11 +692,20 @@ function openDrawer(d){
   const reasons=d.flagged&&d.reviewReasons?`<div class="dr-sec"><h3>Why this needs revision</h3>${d.reviewReasons.split(' | ').map(r=>`<div class="reason-item">${esc(r)}</div>`).join('')}</div>`:'';
   const doiLink=d.doi?`<a href="https://doi.org/${esc(d.doi.replace(/[–—]/g,'-'))}" target="_blank" rel="noopener">${esc(d.doi)} ↗</a>`:'—';
   const canonNote = (d.hostCanon && d.hostCanon.toLowerCase()!==d.host.toLowerCase()) ? `<dt>NCBI name</dt><dd>${esc(d.hostCanon)}</dd>` : '';
-  dr.innerHTML=`
+  const actions=currentUser?`<div class="dr-actions">
+      <button class="btn-ghost" id="editBtn">Edit record</button>
+      <button class="btn-ghost" id="toggleFlagBtn">${d.flagged?'Mark as verified':'Mark as needs revision'}</button>
+      <button class="btn-ghost danger" id="deleteBtn">Delete</button>
+    </div>`:'';
+  const meta=d.updatedAt?`<div class="dr-sec"><h3>Editing</h3><dl class="kv">
+      <dt>Last updated</dt><dd>${esc(new Date(d.updatedAt).toLocaleString())}</dd>
+      <dt>Updated by</dt><dd>${d.updatedBy?(currentUser&&currentUser.id===d.updatedBy?'You':'lab member '+d.updatedBy.slice(0,8)):'—'}</dd>
+    </dl></div>`:'';
+  return `
     <div class="dr-head"><button class="close" aria-label="Close" onclick="closeDrawer()">✕</button>
       <h2>${esc(d.phage)}</h2><div class="h-host">${esc(d.host)}${d.taxid?` · txid ${esc(d.taxid)}`:''}</div></div>
     ${d.flagged?`<p class="dr-banner">⚑ Flagged for revision — not in the verified set</p>`:''}
-    <div class="dr-body">${reasons}
+    <div class="dr-body">${actions}${reasons}
       <div class="dr-sec"><h3>Classification</h3><dl class="kv">
         <dt>Receptor</dt><dd>${esc(d.receptor)}</dd>
         <dt>Location on cell</dt><dd>${esc(d.recLoc||'—')}</dd>
@@ -566,15 +715,194 @@ function openDrawer(d){
         <dt>Gram stain</dt><dd>${esc(d.gram)}</dd>${canonNote}</dl></div>
       ${hrPred?`<div class="dr-sec"><h3>Host-range basis</h3><p style="margin:0;color:var(--muted);font-size:12.5px">${esc(d.hostRangeNote||'Predicted from receptor conservation. Not a measured host-range panel — verify empirically before citing.')}</p></div>`:''}
       <div class="dr-sec"><h3>Source records</h3>${gbBody}${upBody}</div>
-      <div class="dr-sec"><h3>Reference</h3><dl class="kv"><dt>Citation</dt><dd>${esc(d.ref)}</dd><dt>DOI</dt><dd>${doiLink}</dd><dt>Source</dt><dd>PhReD</dd></dl></div>
+      <div class="dr-sec"><h3>Reference</h3><dl class="kv"><dt>Citation</dt><dd>${esc(d.ref)}</dd><dt>DOI</dt><dd>${doiLink}</dd><dt>Source</dt><dd>${esc(d.source||'—')}</dd></dl></div>
+      ${meta}
     </div>`;
-  dr.classList.add('open'); document.getElementById('scrim').classList.add('open');
 }
+function bindDrawerViewEvents(d){
+  if(!currentUser) return;
+  document.getElementById('editBtn').onclick=()=>{drawerEditing=true; renderDrawerContent(d);};
+  document.getElementById('toggleFlagBtn').onclick=()=>toggleFlag(d);
+  document.getElementById('deleteBtn').onclick=()=>deletePhage(d);
+}
+
+function drawerEditHTML(d){
+  return `
+    <div class="dr-head"><button class="close" aria-label="Cancel edit" id="cancelEditX">✕</button>
+      <h2>Edit ${esc(d.phage)}</h2><div class="h-host">${esc(d.host)}</div></div>
+    <div class="dr-body">
+      <form id="editForm" class="editform">
+        ${renderFieldsForm(d)}
+        <div class="dr-actions" style="margin-top:18px">
+          <button type="submit" class="pill-btn primary">Save changes</button>
+          <button type="button" class="btn-ghost" id="cancelEditBtn">Cancel</button>
+        </div>
+        <div id="editMsg" class="auth-msg"></div>
+      </form>
+    </div>`;
+}
+function bindDrawerEditEvents(d){
+  document.getElementById('cancelEditX').onclick=()=>{drawerEditing=false; renderDrawerContent(d);};
+  document.getElementById('cancelEditBtn').onclick=()=>{drawerEditing=false; renderDrawerContent(d);};
+  document.getElementById('editForm').addEventListener('submit',async e=>{
+    e.preventDefault();
+    const patch=toDbPatch(readFieldsForm());
+    patch.updated_by=currentUser.id;
+    const btn=e.target.querySelector('button[type="submit"]');
+    btn.disabled=true; btn.textContent='Saving…';
+    const msg=document.getElementById('editMsg');
+    try{
+      const {data,error}=await supabaseClient.from('phages').update(patch).eq('id',d.id).select().single();
+      if(error) throw error;
+      applyRowUpdate(data);
+    }catch(err){
+      msg.textContent=err.message||'Could not save changes.';
+      msg.className='auth-msg err';
+      btn.disabled=false; btn.textContent='Save changes';
+    }
+  });
+}
+
+async function toggleFlag(d){
+  try{
+    const {data,error}=await supabaseClient.from('phages').update({needs_review:!d.flagged,updated_by:currentUser.id}).eq('id',d.id).select().single();
+    if(error) throw error;
+    applyRowUpdate(data);
+  }catch(e){ alert('Could not update this record: '+(e.message||e)); }
+}
+async function deletePhage(d){
+  if(!confirm(`Delete "${d.phage}" permanently? This cannot be undone.`)) return;
+  try{
+    // .select() forces PostgREST to report affected rows — without it, a delete
+    // silently blocked by RLS (0 rows affected) returns no error at all, and the
+    // UI would wrongly believe the delete succeeded.
+    const {data,error}=await supabaseClient.from('phages').delete().eq('id',d.id).select();
+    if(error) throw error;
+    if(!data||data.length===0) throw new Error('Not permitted, or the record was already removed.');
+    removeRow(d.id);
+  }catch(e){ alert('Could not delete this record: '+(e.message||e)); }
+}
+function applyRowUpdate(rawRow){
+  const mapped=mapRow(rawRow);
+  const idx=DATA.findIndex(x=>x.id===mapped.id);
+  if(idx>=0) DATA[idx]=mapped; else DATA.push(mapped);
+  renderCoverage(); renderOverview(); render();
+  if(document.getElementById('drawer').classList.contains('open')){
+    drawerEditing=false;
+    renderDrawerContent(mapped);
+  }
+}
+function removeRow(id){
+  const idx=DATA.findIndex(x=>x.id===id);
+  if(idx>=0) DATA.splice(idx,1);
+  renderCoverage(); renderOverview(); render();
+  closeDrawer();
+}
+
 function closeDrawer(){document.getElementById('drawer').classList.remove('open');document.getElementById('scrim').classList.remove('open');}
 function closeHelp(){document.getElementById('helpModal').classList.remove('open');document.getElementById('scrim').classList.remove('open');}
+function closeAddModal(){document.getElementById('addModal').classList.remove('open');document.getElementById('scrim').classList.remove('open');}
 
-document.getElementById('scrim').addEventListener('click',()=>{closeDrawer();closeHelp();});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeDrawer();closeHelp();}});
+function openAddModal(){
+  const form=document.getElementById('addForm');
+  form.innerHTML=renderFieldsForm({})+`
+    <div class="dr-actions" style="margin-top:18px">
+      <button type="submit" class="pill-btn primary">Add phage</button>
+      <button type="button" class="btn-ghost" id="cancelAddBtn">Cancel</button>
+    </div>
+    <div id="addMsg" class="auth-msg"></div>`;
+  document.getElementById('cancelAddBtn').onclick=closeAddModal;
+  form.onsubmit=async e=>{
+    e.preventDefault();
+    const patch=toDbPatch(readFieldsForm());
+    patch.needs_review=true; patch.verified=false; // rule 4 — explicit, not left to column defaults
+    patch.updated_by=currentUser.id;
+    const btn=form.querySelector('button[type="submit"]');
+    btn.disabled=true; btn.textContent='Adding…';
+    const msg=document.getElementById('addMsg');
+    try{
+      const {data,error}=await supabaseClient.from('phages').insert(patch).select().single();
+      if(error) throw error;
+      DATA.push(mapRow(data));
+      renderCoverage(); renderOverview(); render();
+      closeAddModal();
+    }catch(err){
+      msg.textContent=err.message||'Could not add this record.';
+      msg.className='auth-msg err';
+      btn.disabled=false; btn.textContent='Add phage';
+    }
+  };
+  document.getElementById('addModal').classList.add('open');
+  document.getElementById('scrim').classList.add('open');
+}
+document.getElementById('addPhageBtn').addEventListener('click',openAddModal);
+
+// ── Auth (Phase 3): magic-link sign-in ───────────────────────────────────
+// Signed-out visitors keep full read access (BUILD_SPEC.md §4/§8 Phase 3) —
+// this only ever gates what a later phase lets you write, never what you can read.
+let currentUser=null, authMsg=null;
+
+function renderAuth(){
+  const btn=document.getElementById('authBtn');
+  if(currentUser){
+    const email=currentUser.email||'';
+    btn.textContent=email.length>22?email.slice(0,20)+'…':email;
+    btn.title=email;
+  }else{
+    btn.textContent='Sign in';
+    btn.title='';
+  }
+  document.getElementById('addPhageBtn').style.display=currentUser?'inline-flex':'none';
+  renderAuthPop();
+}
+
+function renderAuthPop(){
+  const pop=document.getElementById('authPop');
+  if(currentUser){
+    pop.innerHTML=`<div class="auth-signed"><div class="lab">Signed in</div><div class="val mono">${esc(currentUser.email)}</div></div>
+      <button class="pill-btn" id="signOutBtn" style="width:100%;justify-content:center;margin-top:10px">Sign out</button>`;
+    document.getElementById('signOutBtn').addEventListener('click',async()=>{await supabaseClient.auth.signOut();});
+  }else{
+    pop.innerHTML=`<h4>Sign in</h4>
+      <p>Lab members can edit records. Enter your email for a one-time sign-in link — no password needed.</p>
+      <form id="authForm">
+        <input id="authEmail" type="email" placeholder="you@lab.edu" autocomplete="email" required>
+        <button class="pill-btn primary" type="submit" id="authSubmit" style="width:100%;justify-content:center">Send magic link</button>
+      </form>
+      ${authMsg?`<div class="auth-msg ${authMsg.ok?'ok':'err'}">${esc(authMsg.text)}</div>`:''}`;
+    document.getElementById('authForm').addEventListener('submit',handleMagicLinkSubmit);
+  }
+}
+
+async function handleMagicLinkSubmit(e){
+  e.preventDefault();
+  const email=document.getElementById('authEmail').value.trim();
+  if(!email) return;
+  const btn=document.getElementById('authSubmit');
+  btn.disabled=true; btn.textContent='Sending…';
+  try{
+    const {error}=await supabaseClient.auth.signInWithOtp({email,options:{emailRedirectTo:window.location.origin+window.location.pathname}});
+    if(error) throw error;
+    authMsg={text:'Check your email for the sign-in link.',ok:true};
+  }catch(err){
+    authMsg={text:err.message||'Could not send the link. Try again.',ok:false};
+  }
+  renderAuthPop();
+}
+
+document.getElementById('authBtn').addEventListener('click',e=>{
+  e.stopPropagation();
+  const pop=document.getElementById('authPop');
+  pop.hidden=!pop.hidden;
+  if(!pop.hidden){authMsg=null; renderAuthPop(); const em=document.getElementById('authEmail'); if(em)em.focus();}
+});
+document.addEventListener('click',e=>{
+  const wrap=document.getElementById('authWrap');
+  if(wrap && !wrap.contains(e.target)) document.getElementById('authPop').hidden=true;
+});
+
+document.getElementById('scrim').addEventListener('click',()=>{closeDrawer();closeHelp();closeAddModal();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeDrawer();closeHelp();closeAddModal();document.getElementById('authPop').hidden=true;}});
 document.querySelectorAll('.segment button').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('.segment button').forEach(x=>x.setAttribute('aria-pressed','false'));
   b.setAttribute('aria-pressed','true'); state.seg=b.dataset.seg; renderOverview(); render();}));
@@ -634,6 +962,11 @@ async function init(){
   }
   try{
     supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    supabaseClient.auth.onAuthStateChange((event,session)=>{
+      currentUser=session?session.user:null;
+      if(event==='SIGNED_IN'||event==='SIGNED_OUT'){authMsg=null; document.getElementById('authPop').hidden=true;}
+      renderAuth();
+    });
     DATA = await loadData();
   }catch(e){
     showError(e);
